@@ -1,4 +1,5 @@
-import { PitchDetector } from "https://unpkg.com/pitchy@4.0.3/dist/pitchy.esm.js";
+import { PitchDetector } from "https://esm.sh/pitchy@4";
+
 
 
 const startBtn = document.getElementById("startBtn");
