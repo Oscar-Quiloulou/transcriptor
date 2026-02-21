@@ -165,6 +165,8 @@ function updatePitch(analyser, audioContext) {
 
                 const type = durationToType(delta);
 
+                document.getElementById("duration").textContent = type;
+
                 notesHistory.push({
                     pitch: letter,
                     type: type
