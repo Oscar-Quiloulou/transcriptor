@@ -5,6 +5,9 @@ const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmd", {
     autoResize: true
 });
 
+// Historique des notes
+let notesHistory = [];
+
 const startBtn = document.getElementById("startBtn");
 const audioFile = document.getElementById("audioFile");
 const noteDisplay = document.getElementById("note");
@@ -32,10 +35,25 @@ function freqToSolfege(freq) {
     return notes[midi % 12];
 }
 
-// Génère un MusicXML simple pour une note
-function generateMusicXML(letter) {
-    const step = letter[0];
-    const alter = letter[1] === "#" ? "<alter>1</alter>" : "";
+// Génère un MusicXML avec TOUTES les notes
+function generateMusicXML(history) {
+    let notesXML = "";
+
+    for (const letter of history) {
+        const step = letter[0];
+        const alter = letter[1] === "#" ? "<alter>1</alter>" : "";
+
+        notesXML += `
+        <note>
+            <pitch>
+                <step>${step}</step>
+                ${alter}
+                <octave>4</octave>
+            </pitch>
+            <duration>1</duration>
+            <type>quarter</type>
+        </note>`;
+    }
 
     return `
     <?xml version="1.0" encoding="UTF-8"?>
@@ -51,23 +69,15 @@ function generateMusicXML(letter) {
             <time><beats>4</beats><beat-type>4</beat-type></time>
             <clef><sign>G</sign><line>2</line></clef>
           </attributes>
-          <note>
-            <pitch>
-              <step>${step}</step>
-              ${alter}
-              <octave>4</octave>
-            </pitch>
-            <duration>1</duration>
-            <type>quarter</type>
-          </note>
+          ${notesXML}
         </measure>
       </part>
     </score-partwise>`;
 }
 
-// Affiche la note sur la portée
-async function displayNote(letter) {
-    const xml = generateMusicXML(letter);
+// Affiche la partition complète
+async function displayHistory() {
+    const xml = generateMusicXML(notesHistory);
     await osmd.load(xml);
     osmd.render();
 }
@@ -88,7 +98,11 @@ function updatePitch(analyser, audioContext) {
             freqDisplay.textContent = pitch.toFixed(1) + " Hz";
             noteDisplay.textContent = solf;
 
-            displayNote(letter);
+            // Ajoute la note à l'historique
+            notesHistory.push(letter);
+
+            // Réaffiche toute la partition
+            displayHistory();
         }
 
         requestAnimationFrame(loop);
@@ -99,6 +113,7 @@ function updatePitch(analyser, audioContext) {
 
 // Micro
 async function startListening() {
+    notesHistory = []; // reset
     const audioContext = new AudioContext();
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 2048;
@@ -112,6 +127,8 @@ async function startListening() {
 
 // Fichier audio
 async function handleFile(event) {
+    notesHistory = []; // reset
+
     const file = event.target.files[0];
     if (!file) return;
 
