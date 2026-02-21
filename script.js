@@ -11,6 +11,9 @@ const startBtn = document.getElementById("startBtn");
 const audioFile = document.getElementById("audioFile");
 const noteDisplay = document.getElementById("note");
 const freqDisplay = document.getElementById("freq");
+const durationDisplay = document.getElementById("duration");
+const playBtn = document.getElementById("playBtn");
+const statusMsg = document.getElementById("statusMsg");
 
 // ---------- Historique des notes ----------
 // Chaque entrée : { pitch: "C" | "D#" | ..., type: "quarter" | "eighth" | ... }
@@ -54,7 +57,39 @@ function durationToType(ms) {
     return "whole";                  // ronde
 }
 
-// ---------- Génération MusicXML avec mesures automatiques ----------
+// ---------- Type → durée en ms (pour lecture) ----------
+function typeToMs(type) {
+    switch (type) {
+        case "32nd": return 125;
+        case "16th": return 250;
+        case "eighth": return 500;
+        case "quarter": return 1000;
+        case "half": return 2000;
+        case "whole": return 4000;
+        default: return 1000;
+    }
+}
+
+// ---------- Note → fréquence (pour lecture) ----------
+function letterToFreq(letter) {
+    const map = {
+        "C": 261.63,
+        "C#": 277.18,
+        "D": 293.66,
+        "D#": 311.13,
+        "E": 329.63,
+        "F": 349.23,
+        "F#": 369.99,
+        "G": 392.00,
+        "G#": 415.30,
+        "A": 440.00,
+        "A#": 466.16,
+        "B": 493.88
+    };
+    return map[letter] || 440;
+}
+
+// ---------- Génération MusicXML ----------
 function generateMusicXML(history) {
     if (history.length === 0) {
         return `
@@ -89,7 +124,6 @@ function generateMusicXML(history) {
             const alter = note.pitch[1] === "#" ? "<alter>1</alter>" : "";
             const type = note.type;
 
-            // On garde duration = 1 pour toutes, OSMD se base surtout sur <type>
             notesXML += `
             <note>
               <pitch>
@@ -135,11 +169,67 @@ function generateMusicXML(history) {
     </score-partwise>`;
 }
 
-// ---------- Affichage de la partition complète ----------
+// ---------- Affichage de la partition ----------
 async function displayHistory() {
     const xml = generateMusicXML(notesHistory);
     await osmd.load(xml);
     osmd.render();
+}
+
+// ---------- Synthé simple pour lecture ----------
+let audioCtx = null;
+
+function ensureAudioContext() {
+    if (!audioCtx || audioCtx.state === "closed") {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+function playNote(freq, durationMs, startTime) {
+    ensureAudioContext();
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.frequency.value = freq;
+    osc.type = "sine";
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    const t0 = startTime;
+    const t1 = t0 + durationMs / 1000;
+
+    gain.gain.setValueAtTime(0.2, t0);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t1);
+
+    osc.start(t0);
+    osc.stop(t1);
+}
+
+function playScore() {
+    if (notesHistory.length === 0) {
+        statusMsg.textContent = "Aucune note à rejouer pour l’instant.";
+        return;
+    }
+
+    ensureAudioContext();
+    const start = audioCtx.currentTime;
+    let offset = 0;
+
+    for (const note of notesHistory) {
+        const freq = letterToFreq(note.pitch);
+        const durMs = typeToMs(note.type);
+        playNote(freq, durMs, start + offset / 1000);
+        offset += durMs;
+    }
+
+    statusMsg.textContent = "Lecture de la partition en cours…";
+    setTimeout(() => {
+        if (statusMsg.textContent.startsWith("Lecture")) {
+            statusMsg.textContent = "";
+        }
+    }, offset + 500);
 }
 
 // ---------- Boucle de détection ----------
@@ -158,14 +248,14 @@ function updatePitch(analyser, audioContext) {
             if (letter) {
                 freqDisplay.textContent = pitch.toFixed(1) + " Hz";
                 noteDisplay.textContent = solf;
+                statusMsg.textContent = ""; // on efface un éventuel message d’erreur
 
                 const now = performance.now();
-                const delta = lastNoteTime ? now - lastNoteTime : 600; // par défaut ~noire
+                const delta = lastNoteTime ? now - lastNoteTime : 600;
                 lastNoteTime = now;
 
                 const type = durationToType(delta);
-
-                document.getElementById("duration").textContent = type;
+                durationDisplay.textContent = type;
 
                 notesHistory.push({
                     pitch: letter,
@@ -173,7 +263,7 @@ function updatePitch(analyser, audioContext) {
                 });
 
                 const t = performance.now();
-                if (t - lastRenderTime > 500) { // 2 fois par seconde max
+                if (t - lastRenderTime > 500) {
                     lastRenderTime = t;
                     await displayHistory();
                 }
@@ -190,9 +280,10 @@ function updatePitch(analyser, audioContext) {
 async function startListening() {
     notesHistory = [];
     lastNoteTime = 0;
+    statusMsg.textContent = "Écoute du micro en cours…";
     await displayHistory();
 
-    const audioContext = new AudioContext();
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 2048;
 
@@ -208,12 +299,21 @@ async function handleFile(event) {
     notesHistory = [];
     lastNoteTime = 0;
     await displayHistory();
+    statusMsg.textContent = "Analyse du fichier en cours…";
 
     const file = event.target.files[0];
-    if (!file) return;
+    if (!file) {
+        statusMsg.textContent = "Aucun fichier sélectionné.";
+        return;
+    }
+
+    if (!file.type.startsWith("audio/")) {
+        statusMsg.textContent = "Ce fichier n’est pas un fichier audio.";
+        return;
+    }
 
     const arrayBuffer = await file.arrayBuffer();
-    const audioContext = new AudioContext();
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
     const source = audioContext.createBufferSource();
@@ -227,12 +327,24 @@ async function handleFile(event) {
 
     source.start();
 
+    // Si après X secondes aucune note n’a été détectée → impossible à transcrire
+    notesHistory = [];
+    lastNoteTime = 0;
     updatePitch(analyser, audioContext);
+
+    setTimeout(() => {
+        if (notesHistory.length === 0) {
+            statusMsg.textContent = "Impossible à transcrire : trop de polyphonie, bruit ou signal non exploitable.";
+        } else {
+            statusMsg.textContent = "";
+        }
+    }, 7000); // 7 secondes d’analyse
 }
 
 // ---------- Events ----------
 startBtn.addEventListener("click", startListening);
 audioFile.addEventListener("change", handleFile);
+playBtn.addEventListener("click", playScore);
 
 // Partition vide au chargement
 displayHistory();

@@ -9,30 +9,79 @@ html, body {
     text-align: center;
 }
 
-/* Conteneur du haut */
+h1 {
+    margin-top: 30px;
+    margin-bottom: 10px;
+}
+
 .container {
     background: rgba(255, 255, 255, 0.15);
-    padding: 30px;
+    padding: 20px;
     border-radius: 12px;
     width: 90%;
     max-width: 500px;
-    margin: 40px auto;
+    margin: 20px auto 30px auto;
     backdrop-filter: blur(6px);
 }
 
-/* Partition OSMD */
+button {
+    background: #fff;
+    color: #333;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 16px;
+    cursor: pointer;
+    margin: 10px 5px;
+    transition: 0.2s;
+}
+
+button:hover {
+    background: #eee;
+}
+
+input[type="file"] {
+    margin: 10px 0 20px 0;
+}
+
+#note {
+    font-size: 42px;
+    margin: 5px 0;
+}
+
+#freq, #duration {
+    font-size: 20px;
+    margin: 3px 0 8px 0;
+}
+
+.status-msg {
+    min-height: 20px;
+    font-size: 14px;
+    margin-top: 10px;
+    opacity: 0.9;
+}
+
+/* Zone OSMD */
 #osmd {
     width: 95%;
-    margin: 40px auto;
+    margin: 20px auto 40px auto;
     overflow-x: auto;
     overflow-y: visible;
     background: white;
     border-radius: 8px;
-    padding: 20px;
+    padding: 10px;
 }
 
-/* Empêche OSMD de se compresser */
-#osmd svg {
-    width: auto !important;
-    height: auto !important;
+/* Responsive */
+@media (max-width: 600px) {
+    h1 {
+        font-size: 22px;
+    }
+    #note {
+        font-size: 32px;
+    }
+    button {
+        width: 100%;
+        box-sizing: border-box;
+    }
 }

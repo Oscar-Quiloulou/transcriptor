@@ -2,43 +2,36 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <title>Solfège Live</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Détecteur de Notes</title>
     <link rel="stylesheet" href="style.css">
-
-    <!-- OpenSheetMusicDisplay (CDN fiable) -->
-    <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.6/build/opensheetmusicdisplay.min.js"></script>
+    <!-- OSMD -->
+    <script src="https://unpkg.com/opensheetmusicdisplay@1.8.4/build/opensheetmusicdisplay.min.js"></script>
 </head>
 <body>
-
-    <h1>🎵 Détecteur de Notes (Solfège)</h1>
+    <h1>Solfège Live</h1>
 
     <div class="container">
-
-        <button id="startBtn">🎤 Utiliser le micro</button>
-
-        <p>ou</p>
-
+        <button id="startBtn">🎙️ Démarrer le micro</button>
+        <p>Ou choisir un fichier audio :</p>
         <input type="file" id="audioFile" accept="audio/*">
 
-        <div id="output">
-            <p>Note détectée :</p>
-            <h2 id="note">—</h2>
+        <p>Note détectée :</p>
+        <h2 id="note">—</h2>
 
-            <p>Fréquence :</p>
-            <h3 id="freq">— Hz</h3>
-            <p>Note détectée :</p>
+        <p>Fréquence :</p>
+        <h3 id="freq">— Hz</h3>
 
-            <p>Durée détectée :</p>
-            <h3 id="duration">—</h3>
+        <p>Durée détectée :</p>
+        <h3 id="duration">—</h3>
 
-        </div>
+        <button id="playBtn">▶ Écouter la partition générée</button>
+
+        <p id="statusMsg" class="status-msg"></p>
     </div>
-    <div>
-        <h2>🎼 Portée</h2>
-        <div id="osmd"></div>
 
-    </div>
+    <h2>🎼 Partition</h2>
+    <div id="osmd"></div>
 
     <script type="module" src="script.js"></script>
 </body>
