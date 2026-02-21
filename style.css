@@ -1,9 +1,7 @@
-/* --- Structure générale --- */
 html, body {
     margin: 0;
     padding: 0;
-    height: auto;
-    overflow-y: auto; /* permet le scroll vertical */
+    overflow-y: auto;
     overflow-x: hidden;
     font-family: Arial, sans-serif;
     background: linear-gradient(135deg, #4a90e2, #9013fe);
@@ -11,58 +9,26 @@ html, body {
     text-align: center;
 }
 
-/* --- Titre --- */
-h1 {
-    margin-top: 40px;
-    margin-bottom: 30px;
-}
-
-/* --- Conteneur principal --- */
+/* Conteneur du haut */
 .container {
     background: rgba(255, 255, 255, 0.15);
     padding: 30px;
     border-radius: 12px;
     width: 90%;
     max-width: 500px;
-    margin: auto;
+    margin: 40px auto;
     backdrop-filter: blur(6px);
-    overflow: visible !important; /* IMPORTANT : laisse OSMD dépasser */
 }
 
-/* --- Boutons --- */
-button {
-    background: #fff;
-    color: #333;
-    border: none;
-    padding: 12px 20px;
-    border-radius: 8px;
-    font-size: 16px;
-    cursor: pointer;
-    margin-bottom: 20px;
-    transition: 0.2s;
-}
-
-button:hover {
-    background: #eee;
-}
-
-/* --- Affichage des notes --- */
-#note {
-    font-size: 48px;
-    margin: 10px 0;
-}
-
-#freq {
-    font-size: 24px;
-    opacity: 0.8;
-}
-
-/* --- Zone OSMD (partition) --- */
+/* Partition OSMD */
 #osmd {
-    width: 100%;
-    margin-top: 20px;
-    overflow-x: auto; /* scroll horizontal si besoin */
-    overflow-y: visible; /* laisse la partition s'étendre */
+    width: 95%;
+    margin: 40px auto;
+    overflow-x: auto;
+    overflow-y: visible;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
 }
 
 /* Empêche OSMD de se compresser */
