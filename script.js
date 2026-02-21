@@ -1,25 +1,28 @@
 import { PitchDetector } from "https://esm.sh/pitchy@4";
 
 // ---------- OSMD ----------
-
 const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmd", {
     autoResize: true,
     drawTitle: false,
 });
 
 // ---------- DOM ----------
-
 const startBtn = document.getElementById("startBtn");
 const audioFile = document.getElementById("audioFile");
 const noteDisplay = document.getElementById("note");
 const freqDisplay = document.getElementById("freq");
 
 // ---------- Historique des notes ----------
+// Chaque entrée : { pitch: "C" | "D#" | ..., type: "quarter" | "eighth" | ... }
+let notesHistory = [];
 
-let notesHistory = []; // ex: ["C", "D", "E", "F", "G#"]
+// ---------- Patch anti-freeze ----------
+let lastRenderTime = 0; // OSMD ne rerend pas plus de 2 fois/sec
+
+// ---------- Temps de la dernière note ----------
+let lastNoteTime = 0;
 
 // ---------- Solfège ↔ Anglo-saxon ----------
-
 const solfegeToLetter = {
     "Do": "C",
     "Do♯": "C#",
@@ -41,11 +44,19 @@ function freqToSolfege(freq) {
     return notes[(midi % 12 + 12) % 12];
 }
 
-// ---------- Génération MusicXML avec mesures automatiques ----------
+// ---------- Durée → type de note ----------
+function durationToType(ms) {
+    if (ms < 150) return "32nd";     // triple-croche
+    if (ms < 300) return "16th";     // double-croche
+    if (ms < 600) return "eighth";   // croche
+    if (ms < 1200) return "quarter"; // noire
+    if (ms < 2400) return "half";    // blanche
+    return "whole";                  // ronde
+}
 
+// ---------- Génération MusicXML avec mesures automatiques ----------
 function generateMusicXML(history) {
     if (history.length === 0) {
-        // partition vide minimale
         return `
         <?xml version="1.0" encoding="UTF-8"?>
         <score-partwise version="3.1">
@@ -73,10 +84,12 @@ function generateMusicXML(history) {
         const slice = history.slice(i, i + notesPerMeasure);
 
         let notesXML = "";
-        for (const letter of slice) {
-            const step = letter[0];
-            const alter = letter[1] === "#" ? "<alter>1</alter>" : "";
+        for (const note of slice) {
+            const step = note.pitch[0];
+            const alter = note.pitch[1] === "#" ? "<alter>1</alter>" : "";
+            const type = note.type;
 
+            // On garde duration = 1 pour toutes, OSMD se base surtout sur <type>
             notesXML += `
             <note>
               <pitch>
@@ -85,7 +98,7 @@ function generateMusicXML(history) {
                 <octave>4</octave>
               </pitch>
               <duration>1</duration>
-              <type>quarter</type>
+              <type>${type}</type>
             </note>`;
         }
 
@@ -123,7 +136,6 @@ function generateMusicXML(history) {
 }
 
 // ---------- Affichage de la partition complète ----------
-
 async function displayHistory() {
     const xml = generateMusicXML(notesHistory);
     await osmd.load(xml);
@@ -131,7 +143,6 @@ async function displayHistory() {
 }
 
 // ---------- Boucle de détection ----------
-
 function updatePitch(analyser, audioContext) {
     const detector = PitchDetector.forFloat32Array(analyser.fftSize);
     const buffer = new Float32Array(analyser.fftSize);
@@ -148,11 +159,22 @@ function updatePitch(analyser, audioContext) {
                 freqDisplay.textContent = pitch.toFixed(1) + " Hz";
                 noteDisplay.textContent = solf;
 
-                // Ajoute la note à l'historique
-                notesHistory.push(letter);
+                const now = performance.now();
+                const delta = lastNoteTime ? now - lastNoteTime : 600; // par défaut ~noire
+                lastNoteTime = now;
 
-                // Réaffiche toute la partition (qui s’allonge proprement)
-                await displayHistory();
+                const type = durationToType(delta);
+
+                notesHistory.push({
+                    pitch: letter,
+                    type: type
+                });
+
+                const t = performance.now();
+                if (t - lastRenderTime > 500) { // 2 fois par seconde max
+                    lastRenderTime = t;
+                    await displayHistory();
+                }
             }
         }
 
@@ -163,10 +185,10 @@ function updatePitch(analyser, audioContext) {
 }
 
 // ---------- Micro ----------
-
 async function startListening() {
-    notesHistory = []; // reset historique
-    await displayHistory(); // partition vide propre
+    notesHistory = [];
+    lastNoteTime = 0;
+    await displayHistory();
 
     const audioContext = new AudioContext();
     const analyser = audioContext.createAnalyser();
@@ -180,9 +202,9 @@ async function startListening() {
 }
 
 // ---------- Fichier audio ----------
-
 async function handleFile(event) {
-    notesHistory = []; // reset historique
+    notesHistory = [];
+    lastNoteTime = 0;
     await displayHistory();
 
     const file = event.target.files[0];
@@ -207,7 +229,6 @@ async function handleFile(event) {
 }
 
 // ---------- Events ----------
-
 startBtn.addEventListener("click", startListening);
 audioFile.addEventListener("change", handleFile);
 
