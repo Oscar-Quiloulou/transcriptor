@@ -1,17 +1,16 @@
 import { PitchDetector } from "https://esm.sh/pitchy@4";
 
-const VF = Vex.Flow;
+// Initialisation OSMD
+const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmd", {
+    autoResize: true
+});
 
 const startBtn = document.getElementById("startBtn");
 const audioFile = document.getElementById("audioFile");
 const noteDisplay = document.getElementById("note");
 const freqDisplay = document.getElementById("freq");
 
-let renderer, context, stave;
-
-// ----------------------
 // Solfège → Anglo-saxon
-// ----------------------
 const solfegeToLetter = {
     "Do": "C",
     "Do♯": "C#",
@@ -33,51 +32,52 @@ function freqToSolfege(freq) {
     return notes[midi % 12];
 }
 
-// ----------------------
-// Initialisation VexFlow
-// ----------------------
-function initStaff() {
-    const div = document.getElementById("staff");
-    div.innerHTML = ""; // reset
+// Génère un MusicXML simple pour une note
+function generateMusicXML(letter) {
+    const step = letter[0];
+    const alter = letter[1] === "#" ? "<alter>1</alter>" : "";
 
-    renderer = new VF.Renderer(div, VF.Renderer.Backends.SVG);
-    renderer.resize(500, 200);
-
-    context = renderer.getContext();
-    context.setFont("Arial", 10);
-
-    stave = new VF.Stave(10, 40, 480);
-    stave.addClef("treble");
-    stave.setContext(context).draw();
+    return `
+    <?xml version="1.0" encoding="UTF-8"?>
+    <score-partwise version="3.1">
+      <part-list>
+        <score-part id="P1"><part-name>Music</part-name></score-part>
+      </part-list>
+      <part id="P1">
+        <measure number="1">
+          <attributes>
+            <divisions>1</divisions>
+            <key><fifths>0</fifths></key>
+            <time><beats>4</beats><beat-type>4</beat-type></time>
+            <clef><sign>G</sign><line>2</line></clef>
+          </attributes>
+          <note>
+            <pitch>
+              <step>${step}</step>
+              ${alter}
+              <octave>4</octave>
+            </pitch>
+            <duration>1</duration>
+            <type>quarter</type>
+          </note>
+        </measure>
+      </part>
+    </score-partwise>`;
 }
 
-// ----------------------
-// Dessiner une note
-// ----------------------
-function drawNote(letter) {
-    initStaff();
-
-    const note = new VF.StaveNote({
-        clef: "treble",
-        keys: [`${letter.toLowerCase()}/4`],
-        duration: "q"
-    });
-
-    const voice = new VF.Voice({ num_beats: 1, beat_value: 4 });
-    voice.addTickables([note]);
-
-    new VF.Formatter().joinVoices([voice]).format([voice], 300);
-    voice.draw(context, stave);
+// Affiche la note sur la portée
+async function displayNote(letter) {
+    const xml = generateMusicXML(letter);
+    await osmd.load(xml);
+    osmd.render();
 }
 
-// ----------------------
-// Pitch detection loop
-// ----------------------
+// Boucle de détection
 function updatePitch(analyser, audioContext) {
     const detector = PitchDetector.forFloat32Array(analyser.fftSize);
     const buffer = new Float32Array(analyser.fftSize);
 
-    function loop() {
+    async function loop() {
         analyser.getFloatTimeDomainData(buffer);
         const [pitch, clarity] = detector.findPitch(buffer, audioContext.sampleRate);
 
@@ -88,7 +88,7 @@ function updatePitch(analyser, audioContext) {
             freqDisplay.textContent = pitch.toFixed(1) + " Hz";
             noteDisplay.textContent = solf;
 
-            drawNote(letter);
+            displayNote(letter);
         }
 
         requestAnimationFrame(loop);
@@ -97,10 +97,8 @@ function updatePitch(analyser, audioContext) {
     loop();
 }
 
-// 🎤 Micro
+// Micro
 async function startListening() {
-    initStaff();
-
     const audioContext = new AudioContext();
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 2048;
@@ -112,10 +110,8 @@ async function startListening() {
     updatePitch(analyser, audioContext);
 }
 
-// 📁 Fichier audio
+// Fichier audio
 async function handleFile(event) {
-    initStaff();
-
     const file = event.target.files[0];
     if (!file) return;
 
@@ -136,3 +132,6 @@ async function handleFile(event) {
 
     updatePitch(analyser, audioContext);
 }
+
+startBtn.addEventListener("click", startListening);
+audioFile.addEventListener("change", handleFile);
