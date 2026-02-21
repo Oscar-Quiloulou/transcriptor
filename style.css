@@ -44,3 +44,11 @@ button:hover {
     font-size: 24px;
     opacity: 0.8;
 }
+html, body {
+    height: auto;
+    overflow-y: auto;
+}
+#osmd {
+    width: 100%;
+    overflow-x: auto;
+}
