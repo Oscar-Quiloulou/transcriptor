@@ -1,4 +1,5 @@
-import { PitchDetector } from "https://cdn.jsdelivr.net/npm/pitchy@4.0.3/dist/pitchy.esm.js";
+import { PitchDetector } from "https://unpkg.com/pitchy@4.0.3/dist/pitchy.esm.js";
+
 
 const startBtn = document.getElementById("startBtn");
 const audioFile = document.getElementById("audioFile");
