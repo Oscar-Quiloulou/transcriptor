@@ -81,6 +81,74 @@ function letterToFreq(letter) {
     return map[letter] || 440;
 }
 
+// ------------------------------------------------------------
+//  COMMIT 3 : ANALYSEUR DE QUALITÉ AVANT TRANSCRIPTION
+// ------------------------------------------------------------
+
+async function analyzeAudioQuality(analyser, audioContext) {
+    return new Promise(resolve => {
+        const detector = PitchDetector.forFloat32Array(analyser.fftSize);
+        const buffer = new Float32Array(analyser.fftSize);
+
+        let claritySum = 0;
+        let clarityCount = 0;
+
+        let pitchChanges = 0;
+        let lastPitch = null;
+
+        let noiseLevelSum = 0;
+
+        const start = performance.now();
+
+        function loop() {
+            analyser.getFloatTimeDomainData(buffer);
+
+            // bruit = amplitude moyenne
+            let noise = 0;
+            for (let i = 0; i < buffer.length; i++) noise += Math.abs(buffer[i]);
+            noise /= buffer.length;
+            noiseLevelSum += noise;
+
+            const [pitch, clarity] = detector.findPitch(buffer, audioContext.sampleRate);
+
+            if (clarity > 0.5 && pitch > 50 && pitch < 2000) {
+                claritySum += clarity;
+                clarityCount++;
+
+                if (lastPitch && Math.abs(pitch - lastPitch) > 5) {
+                    pitchChanges++;
+                }
+                lastPitch = pitch;
+            }
+
+            if (performance.now() - start < 2000) {
+                requestAnimationFrame(loop);
+            } else {
+                const clarityAvg = clarityCount > 0 ? claritySum / clarityCount : 0;
+                const noiseAvg = noiseLevelSum / (performance.now() - start);
+
+                // Score final
+                let score =
+                      clarityAvg * 40
+                    + (pitchChanges < 5 ? 20 : 5)
+                    + (noiseAvg < 0.05 ? 20 : 5)
+                    + (clarityCount > 20 ? 20 : 5);
+
+                score = Math.min(100, Math.max(0, score));
+
+                resolve(score);
+            }
+        }
+
+        loop();
+    });
+}
+
+// ------------------------------------------------------------
+//  FIN ANALYSEUR
+// ------------------------------------------------------------
+
+
 // ---------- Analyse des notes brutes ----------
 function analyzeBatch() {
     if (rawNotes.length < 2) return;
@@ -99,14 +167,10 @@ function analyzeBatch() {
         }
     }
 
-    // dernière note
     const lastDuration = rawNotes[rawNotes.length - 1].time - start;
     result.push({ pitch: current, type: durationToType(lastDuration) });
 
-    // Ajout au score final
     notesHistory.push(...result);
-
-    // Nettoyage
     rawNotes = [];
 
     displayHistory();
@@ -120,7 +184,7 @@ function getBatchDurationMs() {
     const quarterMs = 60000 / tempo;
     const measureMs = beats * quarterMs;
 
-    return measureMs * 2; // 2 mesures
+    return measureMs * 2;
 }
 
 // ---------- Partition ----------
@@ -210,7 +274,7 @@ function generateMusicXML(history) {
     </score-partwise>`;
 }
 
-// ---------- Lecture audio améliorée (ADSR + transitions) ----------
+// ---------- Lecture audio améliorée ----------
 let audioCtx = null;
 
 function ensureAudioContext() {
@@ -231,11 +295,10 @@ function playNote(freq, durationMs, startTime) {
     osc.connect(gain);
     gain.connect(audioCtx.destination);
 
-    // ADSR (piano-like)
-    const A = 0.01;  // Attack
-    const D = 0.05;  // Decay
-    const S = 0.3;   // Sustain level
-    const R = 0.1;   // Release
+    const A = 0.01;
+    const D = 0.05;
+    const S = 0.3;
+    const R = 0.1;
 
     const t0 = startTime;
     const t1 = t0 + durationMs / 1000;
@@ -247,7 +310,7 @@ function playNote(freq, durationMs, startTime) {
     gain.gain.exponentialRampToValueAtTime(0.0001, t1);
 
     osc.start(t0);
-    osc.stop(t1 + 0.05); // petit fade-out
+    osc.stop(t1 + 0.05);
 }
 
 function playScore() {
@@ -264,7 +327,6 @@ function playScore() {
         const freq = letterToFreq(note.pitch);
         const durMs = typeToMs(note.type);
 
-        // micro-silence entre les notes rapides
         const adjustedDur = durMs * 0.95;
 
         playNote(freq, adjustedDur, start + offset / 1000);
@@ -275,9 +337,8 @@ function playScore() {
     setTimeout(() => statusMsg.textContent = "", offset + 500);
 }
 
-// ---------- Détection améliorée (commit 2) ----------
+// ---------- Détection améliorée ----------
 function updatePitch(analyser, audioContext) {
-    // FFT plus petite = meilleure réactivité
     analyser.fftSize = 1024;
 
     const detector = PitchDetector.forFloat32Array(analyser.fftSize);
@@ -299,14 +360,12 @@ function updatePitch(analyser, audioContext) {
             noteDisplay.textContent = solf;
             freqDisplay.textContent = pitch.toFixed(1) + " Hz";
 
-            // ---------- NOUVEAU : détection des transitions rapides ----------
             if (lastPitch !== letter) {
                 rawNotes.push({ pitch: letter, time: now });
                 lastPitch = letter;
             }
         }
 
-        // Analyse toutes les 2 mesures
         if (now - lastBatchTime >= batchDuration) {
             analyzeBatch();
             lastBatchTime = now;
@@ -328,10 +387,27 @@ async function startListening() {
 
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 1024;
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
+
+    // ---------- Analyse de qualité avant transcription ----------
+    statusMsg.textContent = "Analyse de la qualité audio…";
+
+    const score = await analyzeAudioQuality(analyser, audioContext);
+
+    if (score < 30) {
+        statusMsg.textContent = `Qualité trop faible (${score.toFixed(0)}%) : transcription impossible.`;
+        return;
+    }
+
+    if (score < 60) {
+        statusMsg.textContent = `Qualité moyenne (${score.toFixed(0)}%) : transcription partielle possible.`;
+    } else {
+        statusMsg.textContent = `Bonne qualité (${score.toFixed(0)}%) : transcription fiable.`;
+    }
 
     updatePitch(analyser, audioContext);
 }
@@ -361,6 +437,22 @@ async function handleFile(event) {
     analyser.connect(audioContext.destination);
 
     source.start();
+
+    // ---------- Analyse de qualité ----------
+    statusMsg.textContent = "Analyse de la qualité audio…";
+
+    const score = await analyzeAudioQuality(analyser, audioContext);
+
+    if (score < 30) {
+        statusMsg.textContent = `Qualité trop faible (${score.toFixed(0)}%) : transcription impossible.`;
+        return;
+    }
+
+    if (score < 60) {
+        statusMsg.textContent = `Qualité moyenne (${score.toFixed(0)}%) : transcription partielle possible.`;
+    } else {
+        statusMsg.textContent = `Bonne qualité (${score.toFixed(0)}%) : transcription fiable.`;
+    }
 
     updatePitch(analyser, audioContext);
 
