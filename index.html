@@ -5,7 +5,6 @@
     <title>Solfège Live</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
-    <!-- OSMD -->
     <script src="https://unpkg.com/opensheetmusicdisplay@1.8.4/build/opensheetmusicdisplay.min.js"></script>
 </head>
 <body>
@@ -13,8 +12,19 @@
 
     <div class="container">
         <button id="startBtn">🎙️ Démarrer le micro</button>
+
         <p>Ou choisir un fichier audio :</p>
         <input type="file" id="audioFile" accept="audio/*">
+
+        <p>Tempo :</p>
+        <input type="number" id="tempo" value="120" min="40" max="240">
+
+        <p>Signature :</p>
+        <select id="signature">
+            <option value="4">4/4</option>
+            <option value="3">3/4</option>
+            <option value="6">6/8</option>
+        </select>
 
         <p>Note détectée :</p>
         <h2 id="note">—</h2>

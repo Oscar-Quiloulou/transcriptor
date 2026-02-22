@@ -15,29 +15,26 @@ const durationDisplay = document.getElementById("duration");
 const playBtn = document.getElementById("playBtn");
 const statusMsg = document.getElementById("statusMsg");
 
-// ---------- Historique des notes ----------
-// Chaque entrée : { pitch: "C" | "D#" | ..., type: "quarter" | "eighth" | ... }
-let notesHistory = [];
+const tempoInput = document.getElementById("tempo");
+const signatureInput = document.getElementById("signature");
 
-// ---------- Patch anti-freeze ----------
-let lastRenderTime = 0; // OSMD ne rerend pas plus de 2 fois/sec
+// ---------- File d’attente ----------
+let rawNotes = []; // notes brutes (pitch + time)
 
-// ---------- Temps de la dernière note ----------
-let lastNoteTime = 0;
+// ---------- Notes finales ----------
+let notesHistory = []; // notes analysées (pitch + type)
+
+// ---------- Analyse toutes les 2 mesures ----------
+let lastBatchTime = performance.now();
 
 // ---------- Solfège ↔ Anglo-saxon ----------
 const solfegeToLetter = {
-    "Do": "C",
-    "Do♯": "C#",
-    "Ré": "D",
-    "Ré♯": "D#",
+    "Do": "C", "Do♯": "C#",
+    "Ré": "D", "Ré♯": "D#",
     "Mi": "E",
-    "Fa": "F",
-    "Fa♯": "F#",
-    "Sol": "G",
-    "Sol♯": "G#",
-    "La": "A",
-    "La♯": "A#",
+    "Fa": "F", "Fa♯": "F#",
+    "Sol": "G", "Sol♯": "G#",
+    "La": "A", "La♯": "A#",
     "Si": "B"
 };
 
@@ -47,17 +44,17 @@ function freqToSolfege(freq) {
     return notes[(midi % 12 + 12) % 12];
 }
 
-// ---------- Durée → type de note ----------
+// ---------- Durée → type ----------
 function durationToType(ms) {
-    if (ms < 150) return "32nd";     // triple-croche
-    if (ms < 300) return "16th";     // double-croche
-    if (ms < 600) return "eighth";   // croche
-    if (ms < 1200) return "quarter"; // noire
-    if (ms < 2400) return "half";    // blanche
-    return "whole";                  // ronde
+    if (ms < 150) return "32nd";
+    if (ms < 300) return "16th";
+    if (ms < 600) return "eighth";
+    if (ms < 1200) return "quarter";
+    if (ms < 2400) return "half";
+    return "whole";
 }
 
-// ---------- Type → durée en ms (pour lecture) ----------
+// ---------- Type → durée ms (lecture) ----------
 function typeToMs(type) {
     switch (type) {
         case "32nd": return 125;
@@ -70,26 +67,70 @@ function typeToMs(type) {
     }
 }
 
-// ---------- Note → fréquence (pour lecture) ----------
+// ---------- Note → fréquence ----------
 function letterToFreq(letter) {
     const map = {
-        "C": 261.63,
-        "C#": 277.18,
-        "D": 293.66,
-        "D#": 311.13,
+        "C": 261.63, "C#": 277.18,
+        "D": 293.66, "D#": 311.13,
         "E": 329.63,
-        "F": 349.23,
-        "F#": 369.99,
-        "G": 392.00,
-        "G#": 415.30,
-        "A": 440.00,
-        "A#": 466.16,
+        "F": 349.23, "F#": 369.99,
+        "G": 392.00, "G#": 415.30,
+        "A": 440.00, "A#": 466.16,
         "B": 493.88
     };
     return map[letter] || 440;
 }
 
-// ---------- Génération MusicXML ----------
+// ---------- Analyse des notes brutes ----------
+function analyzeBatch() {
+    if (rawNotes.length < 2) return;
+
+    let result = [];
+    let current = rawNotes[0].pitch;
+    let start = rawNotes[0].time;
+
+    for (let i = 1; i < rawNotes.length; i++) {
+        if (rawNotes[i].pitch !== current) {
+            const duration = rawNotes[i].time - start;
+            result.push({ pitch: current, type: durationToType(duration) });
+
+            current = rawNotes[i].pitch;
+            start = rawNotes[i].time;
+        }
+    }
+
+    // dernière note
+    const lastDuration = rawNotes[rawNotes.length - 1].time - start;
+    result.push({ pitch: current, type: durationToType(lastDuration) });
+
+    // Ajout au score final
+    notesHistory.push(...result);
+
+    // Nettoyage
+    rawNotes = [];
+
+    displayHistory();
+}
+
+// ---------- Durée d’un bloc de 2 mesures ----------
+function getBatchDurationMs() {
+    const tempo = parseInt(tempoInput.value);
+    const beats = parseInt(signatureInput.value);
+
+    const quarterMs = 60000 / tempo;
+    const measureMs = beats * quarterMs;
+
+    return measureMs * 2; // 2 mesures
+}
+
+// ---------- Partition ----------
+async function displayHistory() {
+    const xml = generateMusicXML(notesHistory);
+    await osmd.load(xml);
+    osmd.render();
+}
+
+// ---------- MusicXML ----------
 function generateMusicXML(history) {
     if (history.length === 0) {
         return `
@@ -142,7 +183,7 @@ function generateMusicXML(history) {
               <attributes>
                 <divisions>1</divisions>
                 <key><fifths>0</fifths></key>
-                <time><beats>4</beats><beat-type>4</beat-type></time>
+                <time><beats>${signatureInput.value}</beats><beat-type>4</beat-type></time>
                 <clef><sign>G</sign><line>2</line></clef>
               </attributes>
               ${notesXML}
@@ -169,14 +210,7 @@ function generateMusicXML(history) {
     </score-partwise>`;
 }
 
-// ---------- Affichage de la partition ----------
-async function displayHistory() {
-    const xml = generateMusicXML(notesHistory);
-    await osmd.load(xml);
-    osmd.render();
-}
-
-// ---------- Synthé simple pour lecture ----------
+// ---------- Lecture audio ----------
 let audioCtx = null;
 
 function ensureAudioContext() {
@@ -209,7 +243,7 @@ function playNote(freq, durationMs, startTime) {
 
 function playScore() {
     if (notesHistory.length === 0) {
-        statusMsg.textContent = "Aucune note à rejouer pour l’instant.";
+        statusMsg.textContent = "Aucune note à rejouer.";
         return;
     }
 
@@ -224,15 +258,11 @@ function playScore() {
         offset += durMs;
     }
 
-    statusMsg.textContent = "Lecture de la partition en cours…";
-    setTimeout(() => {
-        if (statusMsg.textContent.startsWith("Lecture")) {
-            statusMsg.textContent = "";
-        }
-    }, offset + 500);
+    statusMsg.textContent = "Lecture en cours…";
+    setTimeout(() => statusMsg.textContent = "", offset + 500);
 }
 
-// ---------- Boucle de détection ----------
+// ---------- Détection ----------
 function updatePitch(analyser, audioContext) {
     const detector = PitchDetector.forFloat32Array(analyser.fftSize);
     const buffer = new Float32Array(analyser.fftSize);
@@ -241,33 +271,23 @@ function updatePitch(analyser, audioContext) {
         analyser.getFloatTimeDomainData(buffer);
         const [pitch, clarity] = detector.findPitch(buffer, audioContext.sampleRate);
 
+        const now = performance.now();
+        const batchDuration = getBatchDurationMs();
+
         if (clarity > 0.9 && pitch > 50 && pitch < 2000) {
             const solf = freqToSolfege(pitch);
             const letter = solfegeToLetter[solf];
 
-            if (letter) {
-                freqDisplay.textContent = pitch.toFixed(1) + " Hz";
-                noteDisplay.textContent = solf;
-                statusMsg.textContent = ""; // on efface un éventuel message d’erreur
+            noteDisplay.textContent = solf;
+            freqDisplay.textContent = pitch.toFixed(1) + " Hz";
 
-                const now = performance.now();
-                const delta = lastNoteTime ? now - lastNoteTime : 600;
-                lastNoteTime = now;
+            rawNotes.push({ pitch: letter, time: now });
+        }
 
-                const type = durationToType(delta);
-                durationDisplay.textContent = type;
-
-                notesHistory.push({
-                    pitch: letter,
-                    type: type
-                });
-
-                const t = performance.now();
-                if (t - lastRenderTime > 500) {
-                    lastRenderTime = t;
-                    await displayHistory();
-                }
-            }
+        // Analyse toutes les 2 mesures
+        if (now - lastBatchTime >= batchDuration) {
+            analyzeBatch();
+            lastBatchTime = now;
         }
 
         requestAnimationFrame(loop);
@@ -278,9 +298,10 @@ function updatePitch(analyser, audioContext) {
 
 // ---------- Micro ----------
 async function startListening() {
+    rawNotes = [];
     notesHistory = [];
-    lastNoteTime = 0;
-    statusMsg.textContent = "Écoute du micro en cours…";
+    lastBatchTime = performance.now();
+
     await displayHistory();
 
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -296,21 +317,14 @@ async function startListening() {
 
 // ---------- Fichier audio ----------
 async function handleFile(event) {
+    rawNotes = [];
     notesHistory = [];
-    lastNoteTime = 0;
+    lastBatchTime = performance.now();
+
     await displayHistory();
-    statusMsg.textContent = "Analyse du fichier en cours…";
 
     const file = event.target.files[0];
-    if (!file) {
-        statusMsg.textContent = "Aucun fichier sélectionné.";
-        return;
-    }
-
-    if (!file.type.startsWith("audio/")) {
-        statusMsg.textContent = "Ce fichier n’est pas un fichier audio.";
-        return;
-    }
+    if (!file) return;
 
     const arrayBuffer = await file.arrayBuffer();
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -327,18 +341,13 @@ async function handleFile(event) {
 
     source.start();
 
-    // Si après X secondes aucune note n’a été détectée → impossible à transcrire
-    notesHistory = [];
-    lastNoteTime = 0;
     updatePitch(analyser, audioContext);
 
     setTimeout(() => {
         if (notesHistory.length === 0) {
-            statusMsg.textContent = "Impossible à transcrire : trop de polyphonie, bruit ou signal non exploitable.";
-        } else {
-            statusMsg.textContent = "";
+            statusMsg.textContent = "Impossible à transcrire : signal trop complexe.";
         }
-    }, 7000); // 7 secondes d’analyse
+    }, getBatchDurationMs() * 2);
 }
 
 // ---------- Events ----------
