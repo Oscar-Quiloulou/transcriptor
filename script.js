@@ -275,10 +275,15 @@ function playScore() {
     setTimeout(() => statusMsg.textContent = "", offset + 500);
 }
 
-// ---------- Détection ----------
+// ---------- Détection améliorée (commit 2) ----------
 function updatePitch(analyser, audioContext) {
+    // FFT plus petite = meilleure réactivité
+    analyser.fftSize = 1024;
+
     const detector = PitchDetector.forFloat32Array(analyser.fftSize);
     const buffer = new Float32Array(analyser.fftSize);
+
+    let lastPitch = null;
 
     async function loop() {
         analyser.getFloatTimeDomainData(buffer);
@@ -287,14 +292,18 @@ function updatePitch(analyser, audioContext) {
         const now = performance.now();
         const batchDuration = getBatchDurationMs();
 
-        if (clarity > 0.9 && pitch > 50 && pitch < 2000) {
+        if (clarity > 0.85 && pitch > 50 && pitch < 2000) {
             const solf = freqToSolfege(pitch);
             const letter = solfegeToLetter[solf];
 
             noteDisplay.textContent = solf;
             freqDisplay.textContent = pitch.toFixed(1) + " Hz";
 
-            rawNotes.push({ pitch: letter, time: now });
+            // ---------- NOUVEAU : détection des transitions rapides ----------
+            if (lastPitch !== letter) {
+                rawNotes.push({ pitch: letter, time: now });
+                lastPitch = letter;
+            }
         }
 
         // Analyse toutes les 2 mesures
@@ -319,7 +328,6 @@ async function startListening() {
 
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 2048;
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const source = audioContext.createMediaStreamSource(stream);
@@ -347,7 +355,7 @@ async function handleFile(event) {
     source.buffer = audioBuffer;
 
     const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 2048;
+    analyser.fftSize = 1024;
 
     source.connect(analyser);
     analyser.connect(audioContext.destination);
