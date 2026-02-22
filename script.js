@@ -19,13 +19,26 @@ const tempoInput = document.getElementById("tempo");
 const signatureInput = document.getElementById("signature");
 
 // ---------- File d’attente ----------
-let rawNotes = []; // notes brutes (pitch + time)
-
-// ---------- Notes finales ----------
-let notesHistory = []; // notes analysées (pitch + type)
-
-// ---------- Analyse toutes les 2 mesures ----------
+let rawNotes = [];
+let notesHistory = [];
 let lastBatchTime = performance.now();
+
+// ---------- CPU AUTO-DETECTION ----------
+async function detectCpuPower() {
+    const cores = navigator.hardwareConcurrency || 2;
+
+    // micro benchmark
+    const start = performance.now();
+    let x = 0;
+    for (let i = 0; i < 2_000_000; i++) x += i;
+    const duration = performance.now() - start;
+
+    const score = cores * (2000 / duration);
+
+    if (score > 200) return 512;   // CPU rapide
+    if (score > 100) return 1024;  // CPU moyen
+    return 2048;                   // CPU faible
+}
 
 // ---------- Solfège ↔ Anglo-saxon ----------
 const solfegeToLetter = {
@@ -54,7 +67,7 @@ function durationToType(ms) {
     return "whole";
 }
 
-// ---------- Type → durée ms (lecture) ----------
+// ---------- Type → durée ms ----------
 function typeToMs(type) {
     switch (type) {
         case "32nd": return 125;
@@ -82,9 +95,8 @@ function letterToFreq(letter) {
 }
 
 // ------------------------------------------------------------
-//  COMMIT 3 : ANALYSEUR DE QUALITÉ AVANT TRANSCRIPTION
+//  ANALYSEUR DE QUALITÉ (commit 3)
 // ------------------------------------------------------------
-
 async function analyzeAudioQuality(analyser, audioContext) {
     return new Promise(resolve => {
         const detector = PitchDetector.forFloat32Array(analyser.fftSize);
@@ -92,10 +104,8 @@ async function analyzeAudioQuality(analyser, audioContext) {
 
         let claritySum = 0;
         let clarityCount = 0;
-
         let pitchChanges = 0;
         let lastPitch = null;
-
         let noiseLevelSum = 0;
 
         const start = performance.now();
@@ -103,7 +113,6 @@ async function analyzeAudioQuality(analyser, audioContext) {
         function loop() {
             analyser.getFloatTimeDomainData(buffer);
 
-            // bruit = amplitude moyenne
             let noise = 0;
             for (let i = 0; i < buffer.length; i++) noise += Math.abs(buffer[i]);
             noise /= buffer.length;
@@ -115,9 +124,7 @@ async function analyzeAudioQuality(analyser, audioContext) {
                 claritySum += clarity;
                 clarityCount++;
 
-                if (lastPitch && Math.abs(pitch - lastPitch) > 5) {
-                    pitchChanges++;
-                }
+                if (lastPitch && Math.abs(pitch - lastPitch) > 5) pitchChanges++;
                 lastPitch = pitch;
             }
 
@@ -127,7 +134,6 @@ async function analyzeAudioQuality(analyser, audioContext) {
                 const clarityAvg = clarityCount > 0 ? claritySum / clarityCount : 0;
                 const noiseAvg = noiseLevelSum / (performance.now() - start);
 
-                // Score final
                 let score =
                       clarityAvg * 40
                     + (pitchChanges < 5 ? 20 : 5)
@@ -135,7 +141,6 @@ async function analyzeAudioQuality(analyser, audioContext) {
                     + (clarityCount > 20 ? 20 : 5);
 
                 score = Math.min(100, Math.max(0, score));
-
                 resolve(score);
             }
         }
@@ -145,11 +150,8 @@ async function analyzeAudioQuality(analyser, audioContext) {
 }
 
 // ------------------------------------------------------------
-//  FIN ANALYSEUR
+//  ANALYSE DES NOTES BRUTES
 // ------------------------------------------------------------
-
-
-// ---------- Analyse des notes brutes ----------
 function analyzeBatch() {
     if (rawNotes.length < 2) return;
 
@@ -274,7 +276,9 @@ function generateMusicXML(history) {
     </score-partwise>`;
 }
 
-// ---------- Lecture audio améliorée ----------
+// ------------------------------------------------------------
+//  LECTURE AUDIO (ADSR)
+// ------------------------------------------------------------
 let audioCtx = null;
 
 function ensureAudioContext() {
@@ -337,9 +341,14 @@ function playScore() {
     setTimeout(() => statusMsg.textContent = "", offset + 500);
 }
 
-// ---------- Détection améliorée ----------
-function updatePitch(analyser, audioContext) {
-    analyser.fftSize = 1024;
+// ------------------------------------------------------------
+//  DÉTECTION AVEC AUTO-FFT (commit 4)
+// ------------------------------------------------------------
+async function updatePitch(analyser, audioContext) {
+    const fftSize = await detectCpuPower();
+    analyser.fftSize = fftSize;
+
+    console.log("FFT auto‑sélectionnée :", fftSize);
 
     const detector = PitchDetector.forFloat32Array(analyser.fftSize);
     const buffer = new Float32Array(analyser.fftSize);
@@ -377,7 +386,9 @@ function updatePitch(analyser, audioContext) {
     loop();
 }
 
-// ---------- Micro ----------
+// ------------------------------------------------------------
+//  MICRO
+// ------------------------------------------------------------
 async function startListening() {
     rawNotes = [];
     notesHistory = [];
@@ -387,13 +398,11 @@ async function startListening() {
 
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 1024;
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
 
-    // ---------- Analyse de qualité avant transcription ----------
     statusMsg.textContent = "Analyse de la qualité audio…";
 
     const score = await analyzeAudioQuality(analyser, audioContext);
@@ -412,7 +421,9 @@ async function startListening() {
     updatePitch(analyser, audioContext);
 }
 
-// ---------- Fichier audio ----------
+// ------------------------------------------------------------
+//  FICHIER AUDIO
+// ------------------------------------------------------------
 async function handleFile(event) {
     rawNotes = [];
     notesHistory = [];
@@ -431,14 +442,12 @@ async function handleFile(event) {
     source.buffer = audioBuffer;
 
     const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 1024;
 
     source.connect(analyser);
     analyser.connect(audioContext.destination);
 
     source.start();
 
-    // ---------- Analyse de qualité ----------
     statusMsg.textContent = "Analyse de la qualité audio…";
 
     const score = await analyzeAudioQuality(analyser, audioContext);
