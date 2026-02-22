@@ -210,7 +210,7 @@ function generateMusicXML(history) {
     </score-partwise>`;
 }
 
-// ---------- Lecture audio ----------
+// ---------- Lecture audio améliorée (ADSR + transitions) ----------
 let audioCtx = null;
 
 function ensureAudioContext() {
@@ -231,14 +231,23 @@ function playNote(freq, durationMs, startTime) {
     osc.connect(gain);
     gain.connect(audioCtx.destination);
 
+    // ADSR (piano-like)
+    const A = 0.01;  // Attack
+    const D = 0.05;  // Decay
+    const S = 0.3;   // Sustain level
+    const R = 0.1;   // Release
+
     const t0 = startTime;
     const t1 = t0 + durationMs / 1000;
 
-    gain.gain.setValueAtTime(0.2, t0);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.linearRampToValueAtTime(0.4, t0 + A);
+    gain.gain.linearRampToValueAtTime(S, t0 + A + D);
+    gain.gain.setValueAtTime(S, t1 - R);
     gain.gain.exponentialRampToValueAtTime(0.0001, t1);
 
     osc.start(t0);
-    osc.stop(t1);
+    osc.stop(t1 + 0.05); // petit fade-out
 }
 
 function playScore() {
@@ -254,7 +263,11 @@ function playScore() {
     for (const note of notesHistory) {
         const freq = letterToFreq(note.pitch);
         const durMs = typeToMs(note.type);
-        playNote(freq, durMs, start + offset / 1000);
+
+        // micro-silence entre les notes rapides
+        const adjustedDur = durMs * 0.95;
+
+        playNote(freq, adjustedDur, start + offset / 1000);
         offset += durMs;
     }
 
